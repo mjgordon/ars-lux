@@ -1,31 +1,31 @@
 
 /*
-Instruction set:
-B : B B B B
-command : data0 data1 data2 data3
+  Instruction set:
+  B : B B B
+  command : data0 data1 data2
 
-00 : ___ RRR GGG BBB - set tri
-01 : ___ __R __G __B - set rgb
-02 : ___ ___ ___ __R - set R
-03 : ___ ___ ___ __G - set G
-04 : ___ ___ ___ __B - set B
-05 : III III III III - set fade speed for tri
-06 : III III III III - set advance speed
-07 : ___ ___ ___ ___ - Add next to list
-08 : ___ ___ ___ ___ - Clear list
+  X 00 : RRR GGG BBB - set tri
+  X 01 : __R __G __B - set rgb
+    02 : ___ ___ __R - set R
+    03 : ___ ___ __G - set G
+    04 : ___ ___ __B - set B
+    05 : III III III - set fade speed for tri
+    06 : III III III - set advance speed
+    07 : ___ ___ ___ - Add next to list
+    08 : ___ ___ ___ - Clear list
 
-10 : ___ __R __G __B - Toggle rgb
-11 : ___ ___ ___ ___ - Toggle R
-12 : ___ ___ ___ ___ - Toggle G
-13 : ___ ___ ___ ___ - Toggle B
+    10 : __R __G __B - Toggle rgb
+    11 : ___ ___ ___ - Toggle R
+    12 : ___ ___ ___ - Toggle G
+    13 : ___ ___ ___ - Toggle B
 
-20 : III III III III - Set blink speed for next (TRI/RGB)
-21 : III III III III - Set independent blink speed for R
-22 : III III III III - Set independent blink speed for G
-23 : III III III III - Set independent blink speed for B
+    20 : III III III - Set blink speed for next (TRI/RGB)
+    21 : III III III - Set independent blink speed for R
+    22 : III III III - Set independent blink speed for G
+    23 : III III III - Set independent blink speed for B
 
 
- */
+*/
 
 /*
    TODO:
@@ -72,19 +72,44 @@ const int pinEchoA = A3;
 const int pinEchoB = A2;
 const int pinEchoC = A1;
 const int pinEchoD = A0;
+const int echoPins[] = {A3, A2, A1, A0};
 
-byte byteInput[] = {0,0,0,0,0};
+byte byteInput[] = {0, 0, 0, 0};
 int intValue;
 float floatValue;
+
+int triFadeTime = 0;
+int triFadeStart = 0;
+
+int triValueRLast = 255;
+int triValueGLast = 255;
+int triValueBLast = 255;
 
 int triValueR = 255;
 int triValueG = 255;
 int triValueB = 255;
 
-boolean rgbValueR = false;
-boolean rgbValueG = false;
-boolean rgbValueB = false;
+boolean rgbValueR = LOW;
+boolean rgbValueG = LOW;
+boolean rgbValueB = LOW;
 
+const byte CMD_SET_TRI = 0;
+const byte CMD_SET_RGB = 1;
+const byte CMD_SET_R = 2;
+const byte CMD_SET_G = 3;
+const byte CMD_SET_B = 4;
+const byte CMD_SET_FADE = 5;
+const byte CMD_SET_ADVANCE = 6;
+const byte CMD_LIST_ADD = 7;
+const byte CMD_LIST_CLEAR = 8;
+const byte CMD_TOGGLE_RGB = 10;
+const byte CMD_TOGGLE_R = 11;
+const byte CMD_TOGGLE_G = 12;
+const byte CMD_TOGGLE_B = 13;
+const byte CMD_BLINK_SPEED = 20;
+const byte CMD_BLINK_R = 21;
+const byte CMD_BLINK_G = 22;
+const byte CMD_BLINK_B = 23;
 
 
 void setup() {
@@ -108,7 +133,7 @@ void setup() {
   pinMode(pinEchoB, OUTPUT);
   pinMode(pinEchoC, OUTPUT);
   pinMode(pinEchoD, OUTPUT);
-  
+
   Serial.begin(9600);
 }
 
@@ -136,9 +161,19 @@ void loop() {
     digitalWrite(pinB, LOW);
 
     if (power) {
-      analogWrite(pin3ColorR, triValueR);
-      analogWrite(pin3ColorG, triValueG);
-      analogWrite(pin3ColorB, triValueB);
+      int r = triValueR;
+      int g = triValueG;
+      int b = triValueB;
+      if (triFadeTime > 0) {
+        float pos = 1.0f * (millis() - triFadeStart) / triFadeTime;
+        if (pos > 1) pos = 1;
+        r = (int)((triValueR - triValueRLast) * pos + triValueRLast);
+        g = (int)((triValueG - triValueRLast) * pos + triValueGLast);
+        b = (int)((triValueB - triValueRLast) * pos + triValueBLast);
+      }
+      analogWrite(pin3ColorR, r);
+      analogWrite(pin3ColorG, g);
+      analogWrite(pin3ColorB, b);
     }
     else {
       analogWrite(pin3ColorR, 255);
@@ -148,26 +183,86 @@ void loop() {
   }
 }
 
+
+void runCommand() {
+  byte command = byteInput[0];
+
+  switch (command) {
+    case CMD_SET_TRI:
+      triValueRLast = triValueR;
+      triValueGLast = triValueG;
+      triValueBLast = triValueB;
+      triValueR = 255 - byteInput[1];
+      triValueG = 255 - byteInput[2];
+      triValueB = 255 - byteInput[3];
+      triFadeStart = millis();
+      
+      break;
+    case CMD_SET_RGB:
+      rgbValueR = byteInput[1] != 0;
+      rgbValueG = byteInput[2] != 0;
+      rgbValueB = byteInput[3] != 0;
+      break;
+    case CMD_SET_R:
+      rgbValueR = byteInput[3] != 0;
+      break;
+    case CMD_SET_G:
+      rgbValueG = byteInput[3] != 0;
+      break;
+    case CMD_SET_B:
+      rgbValueB = byteInput[3] != 0;
+      break;
+    case CMD_SET_FADE:
+      triFadeTime = intValue;
+      break;
+
+
+    default:
+      for (int i = 0; i < 4; i++) {
+        digitalWrite(echoPins[i], HIGH);
+      }
+      delay(100);
+      for (int i = 0; i < 4; i++) {
+        digitalWrite(echoPins[i], LOW);
+      }
+      delay(100);
+      for (int i = 0; i < 4; i++) {
+        digitalWrite(echoPins[i], HIGH);
+      }
+      delay(100);
+      for (int i = 0; i < 4; i++) {
+        digitalWrite(echoPins[i], LOW);
+      }
+  }
+
+}
+
 /*
-Reads 4-byte integers or floats. The value sent from the robot will be available 
-in the intValue or floatValue variables.
+  Reads 4-byte integers or floats. The value sent from the robot will be available
+  in the intValue or floatValue variables.
 */
 void checkSerial() {
   while (Serial.available() > 0) {
-    byteInput[serialCount] = Serial.peek();
-    if (serialCount > 0) {
-      int id = 4 - (serialCount - 1);
-      intConvert.asBytes[id] = Serial.peek();
-      floatConvert.asBytes[id] = Serial.read();
-    }
     
+    if (serialCount > 0) {
+      int id = 3 - serialCount;
+      intConvert.asBytes[id] = Serial.peek();
+      floatConvert.asBytes[id] = Serial.peek();
+    }
+    byteInput[serialCount] = Serial.read();
 
-    if (serialCount == 4) {
+
+    if (serialCount == 3) {
       intValue = intConvert.asInt;
       floatValue = floatConvert.asFloat;
+      runCommand();
     }
     serialCount++;
-    serialCount %= 5;
+    serialCount %= 4;
+
+    for (int i = 0; i < 4; i++) {
+      digitalWrite(echoPins[i], i <= serialCount);
+    }
   }
 }
 
